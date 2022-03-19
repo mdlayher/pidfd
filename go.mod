@@ -4,7 +4,7 @@ go 1.18
 
 require (
 	github.com/google/go-cmp v0.5.7
-	github.com/mdlayher/socket v0.2.3-0.20220319124934-59b4477ced72
+	github.com/mdlayher/socket v0.2.3
 	golang.org/x/sys v0.0.0-20220319134239-a9b59b0215f8
 )
 
