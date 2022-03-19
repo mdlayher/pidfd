@@ -11,8 +11,9 @@ import (
 // no longer exists, File's methods will return an *Error value which is
 // compatible with errors.Is(err, os.ErrNotExist).
 type File struct {
-	c  *conn
-	rc syscall.RawConn
+	pid int
+	c   *conn
+	rc  syscall.RawConn
 }
 
 // Open opens a pidfd File referring to the process identified by pid. If the
@@ -41,13 +42,13 @@ var _ interface {
 
 // An Error is an error value produced by the pidfd_* family of syscalls.
 type Error struct {
-	FD  int
-	Err error
+	FD, PID int
+	Err     error
 }
 
 // Error implements error.
 func (e *Error) Error() string {
-	return fmt.Sprintf("pidfd %d: %v", e.FD, e.Err)
+	return fmt.Sprintf("pidfd %d: pid: %d: %v", e.FD, e.PID, e.Err)
 }
 
 // Is implements errors.Is comparison.

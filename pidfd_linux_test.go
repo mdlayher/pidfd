@@ -74,7 +74,9 @@ func TestFileSendSignalChild(t *testing.T) {
 }
 
 func TestFileSendSignalInitErrors(t *testing.T) {
-	f, err := pidfd.Open(1)
+	const pid = 1
+
+	f, err := pidfd.Open(pid)
 	if err != nil {
 		t.Fatalf("failed to open init pidfd: %v", err)
 	}
@@ -100,6 +102,7 @@ func TestFileSendSignalInitErrors(t *testing.T) {
 
 	// Verify the underlying error.
 	want := &pidfd.Error{
+		PID: pid,
 		// Copy FD; we don't care about the actual number.
 		FD:  perr.FD,
 		Err: os.NewSyscallError("pidfd_send_signal", unix.EPERM),

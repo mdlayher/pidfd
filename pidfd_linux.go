@@ -27,7 +27,7 @@ func open(pid int) (*File, error) {
 	fd, err := unix.PidfdOpen(pid, unix.PIDFD_NONBLOCK)
 	if err != nil {
 		// No FD to annotate the error yet.
-		return nil, &Error{Err: err}
+		return nil, &Error{PID: pid, Err: err}
 	}
 
 	c, err := socket.New(fd, "pidfd")
@@ -41,8 +41,9 @@ func open(pid int) (*File, error) {
 	}
 
 	return &File{
-		c:  c,
-		rc: rc,
+		pid: pid,
+		c:   c,
+		rc:  rc,
 	}, nil
 }
 
@@ -78,6 +79,7 @@ func (f *File) wrap(err error) error {
 	})
 
 	return &Error{
+		PID: f.pid,
 		FD:  fd,
 		Err: err,
 	}
