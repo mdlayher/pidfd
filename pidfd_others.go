@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"runtime"
+	"time"
 )
 
 var esrch = errors.New("")
@@ -20,4 +21,5 @@ type conn struct{}
 
 func (*File) sendSignal(_ os.Signal) error { return errUnimplemented }
 
-func (*conn) Close() error { return errUnimplemented }
+func (*conn) Close() error                      { return errUnimplemented }
+func (*conn) SetReadDeadline(_ time.Time) error { return errUnimplemented }
