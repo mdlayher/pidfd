@@ -38,6 +38,24 @@ func (f *File) SendSignal(signal os.Signal) error {
 // Wait waits for the process referred to by File to exit. If the context is
 // canceled, Wait will unblock and return an error.
 func (f *File) Wait(ctx context.Context) error {
+	// Wait for the poller to indicate readiness, unless the context is canceled
+	// first. For values of n:
+	//  - 0: init
+	//  - 1: callback invoked, wait for process exit
+	//  - 2: callback invoked due to process exit, stop waiting
+	var n uint32
+	return f.readContext(ctx, func(_ uintptr) bool {
+		return atomic.AddUint32(&n, 1) == 2
+	})
+}
+
+// TODO(mdlayher): move into socket.Conn?
+
+// readContext invokes fn, a read function which indicates readiness, against
+// the associated file descriptor. readContext will block until the read
+// function returns true or the context is canceled. If a context error occurs,
+// it supersedes all other errors returned by this function.
+func (f *File) readContext(ctx context.Context, fn func(fd uintptr) bool) error {
 	// To observe context cancelation, we will set a past deadline in a
 	// goroutine to force blocked Reads to unblock.
 	ctx, cancel := context.WithCancel(ctx)
@@ -50,37 +68,35 @@ func (f *File) Wait(ctx context.Context) error {
 	go func() {
 		defer wg.Done()
 
-		// Immediately unblock pending reads.q
+		// Immediately unblock pending reads.
 		<-ctx.Done()
 		_ = f.c.SetReadDeadline(time.Unix(0, 1))
 	}()
 
-	// Wait for the poller to indicate readiness, unless the context is canceled
-	// first via a deadline adjustment. For values of n:
-	//  - 0: init
-	//  - 1: callback invoked, wait for process exit
-	//  - 2: callback invoked due to process exit, stop waiting
-	var n uint32
-	_ = f.rc.Read(func(_ uintptr) bool {
+	rerr := f.rc.Read(func(fd uintptr) bool {
 		if ctx.Err() != nil {
+			// Context canceled, don't invoke user function.
 			return true
 		}
 
-		return atomic.AddUint32(&n, 1) == 2
+		return fn(fd)
 	})
 
-	// Tidy up and make sure we observe context cancelation.
-	err := ctx.Err()
+	// The operation has unblocked. Observe context cancelation, tidy up the
+	// cancelation goroutine, and disarm the read deadline timer.
+	cerr := ctx.Err()
 	cancel()
 	wg.Wait()
+	serr := f.c.SetReadDeadline(time.Time{})
 
-	// Now that the goroutine has stopped, disarm the deadline we used to
-	// interrupt the blocking Read above.
-	if serr := f.c.SetReadDeadline(time.Time{}); serr != nil {
-		return serr
+	// Context cancel takes priority over all other errors.
+	for _, err := range []error{cerr, rerr, serr} {
+		if err != nil {
+			return err
+		}
 	}
 
-	return err
+	return nil
 }
 
 // Ensure compatibility with package errors.
