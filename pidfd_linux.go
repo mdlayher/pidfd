@@ -35,7 +35,7 @@ func open(pid int) (*File, error) {
 
 	c, err := socket.New(fd, "pidfd")
 	if err != nil {
-		return nil, fmt.Errorf("socket: %v", err)
+		return nil, err
 	}
 
 	rc, err := c.SyscallConn()
