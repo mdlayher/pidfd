@@ -35,7 +35,7 @@ func open(pid int) (*File, error) {
 
 	c, err := socket.New(fd, "pidfd")
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("socket: %v", err)
 	}
 
 	rc, err := c.SyscallConn()
@@ -86,19 +86,8 @@ func (f *File) wait(ctx context.Context) error {
 		_ = f.c.SetReadDeadline(time.Unix(0, 1))
 	}()
 
-	var werr error
-
-	rerr := f.rc.Read(func(fd uintptr) bool {
-		var si unix.Siginfo
-		err := unix.Waitid(unix.P_PIDFD, int(fd), &si, unix.WEXITED|unix.WNOWAIT, nil)
-		switch err {
-		case unix.EAGAIN:
-			return false
-		default:
-			werr = err
-			return true
-		}
-	})
+	var si unix.Siginfo
+	rerr := f.c.Waitid(unix.P_PIDFD, &si, unix.WEXITED|unix.WNOWAIT, nil)
 
 	// The operation has unblocked. Observe context cancelation, tidy up the
 	// cancelation goroutine, and disarm the read deadline timer.
@@ -108,7 +97,7 @@ func (f *File) wait(ctx context.Context) error {
 	serr := f.c.SetReadDeadline(time.Time{})
 
 	// Context cancel takes priority over all other errors.
-	for _, err := range []error{cerr, rerr, werr, serr} {
+	for _, err := range []error{cerr, rerr, serr} {
 		if err != nil {
 			return err
 		}
