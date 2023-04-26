@@ -3,8 +3,11 @@
 package pidfd
 
 import (
+	"context"
 	"fmt"
 	"os"
+	"sync"
+	"time"
 
 	"github.com/mdlayher/socket"
 	"golang.org/x/sys/unix"
@@ -63,6 +66,55 @@ func (f *File) sendSignal(signal os.Signal) error {
 	// "The flags argument is reserved for future use; currently, this argument
 	// must be specified as 0."
 	return f.wrap(f.c.PidfdSendSignal(ssig, nil, 0))
+}
+
+func (f *File) wait(ctx context.Context) error {
+	// To observe context cancelation, we will set a past deadline in a
+	// goroutine to force blocked Reads to unblock.
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	defer wg.Wait()
+
+	go func() {
+		defer wg.Done()
+
+		// Immediately unblock pending reads.
+		<-ctx.Done()
+		_ = f.c.SetReadDeadline(time.Unix(0, 1))
+	}()
+
+	var werr error
+
+	rerr := f.rc.Read(func(fd uintptr) bool {
+		var si unix.Siginfo
+		err := unix.Waitid(unix.P_PIDFD, int(fd), &si, unix.WEXITED|unix.WNOWAIT, nil)
+		switch err {
+		case unix.EAGAIN:
+			return false
+		default:
+			werr = err
+			return true
+		}
+	})
+
+	// The operation has unblocked. Observe context cancelation, tidy up the
+	// cancelation goroutine, and disarm the read deadline timer.
+	cerr := ctx.Err()
+	cancel()
+	wg.Wait()
+	serr := f.c.SetReadDeadline(time.Time{})
+
+	// Context cancel takes priority over all other errors.
+	for _, err := range []error{cerr, rerr, werr, serr} {
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 // wrap annotates and returns an *Error with File metadata. If err is nil, wrap
